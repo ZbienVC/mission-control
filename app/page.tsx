@@ -171,8 +171,8 @@ export default function MissionControl() {
       <div style={S.main}>
         {/* ── Top bar ── */}
         <header style={S.topbar}>
-          <button style={S.menuBtn} onClick={() => setSidebarOpen(true)}>
-            <span /><span /><span />
+          <button style={S.menuBtn} onClick={() => setSidebarOpen(true)} aria-label="Open menu">
+            🎛️
           </button>
           <div style={S.topbarTitle}>
             <span>{NAV_ITEMS.find(n => n.id === section)?.icon} </span>
@@ -428,7 +428,7 @@ const S: Record<string, React.CSSProperties> = {
 
   main:    { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 },
   topbar:  { position: 'sticky', top: 0, zIndex: 30, display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', background: 'rgba(6,9,24,0.9)', borderBottom: '1px solid rgba(255,255,255,0.06)', backdropFilter: 'blur(16px)' },
-  menuBtn: { display: 'flex', flexDirection: 'column', gap: 5, background: 'rgba(255,255,255,0.06)', border: 'none', padding: '9px 11px', borderRadius: 10, cursor: 'pointer', flexShrink: 0 } as any,
+  menuBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg,rgba(16,217,160,0.18),rgba(79,157,235,0.18))', border: '1px solid rgba(16,217,160,0.25)', padding: '0', width: 44, height: 44, borderRadius: 13, cursor: 'pointer', flexShrink: 0, fontSize: 22 } as any,
   topbarTitle:  { flex: 1, fontWeight: 700, fontSize: 16 },
   topbarMeta:   { display: 'flex', gap: 8 },
   badge:        { fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999 },
