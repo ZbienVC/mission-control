@@ -6,9 +6,13 @@ const PASSWORD = process.env.AUTH_PASS ?? '';
 export function middleware(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
 
-  if (authHeader) {
-    const base64 = authHeader.split(' ')[1] ?? '';
-    const [user, pass] = Buffer.from(base64, 'base64').toString().split(':');
+  if (authHeader && authHeader.startsWith('Basic ')) {
+    const base64 = authHeader.slice(6);
+    const decoded = atob(base64);
+    const colon = decoded.indexOf(':');
+    const user = decoded.slice(0, colon);
+    const pass = decoded.slice(colon + 1);
+
     if (user === USERNAME && pass === PASSWORD) {
       return NextResponse.next();
     }
@@ -17,7 +21,7 @@ export function middleware(req: NextRequest) {
   return new NextResponse('Unauthorized', {
     status: 401,
     headers: {
-      'WWW-Authenticate': 'Basic realm="Mission Control"',
+      'WWW-Authenticate': 'Basic realm="Mission Control", charset="UTF-8"',
     },
   });
 }
