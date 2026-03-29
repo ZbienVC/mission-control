@@ -1,8 +1,6 @@
 {
   "crons": [
-    {
-      "path": "/api/trending/scan",
-      "schedule": "0 * * * *"
-    }
+    { "path": "/api/trending/scan", "schedule": "0 * * * *" },
+    { "path": "/api/autonomous", "schedule": "0 6 * * *" }
   ]
 }

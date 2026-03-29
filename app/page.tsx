@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Agent, AGENTS, AgentType, Task, TaskStatus } from '../lib/agents';
+import type { RDSession, RDMessage, AgentRole } from '../lib/rdteam';
+import { AGENT_NAMES, AGENT_COLORS as RD_AGENT_COLORS, AGENT_ICONS } from '../lib/rdteam';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 type DailyLogEntry = { id: string; timestamp: string; summary: string; tags: string[] };
 type DailyLogDay   = { date: string; entries: DailyLogEntry[] };
-type NavSection    = 'overview' | 'kanban' | 'agents' | 'memory' | 'trends';
+type NavSection    = 'overview' | 'kanban' | 'agents' | 'memory' | 'trends' | 'rd';
 
 const DAILY_LOG_KEY = 'missionControl.dailyLogs.v1';
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -41,6 +43,7 @@ const NAV_ITEMS: { id: NavSection; label: string; icon: string; description: str
   { id: 'agents',   label: 'Agents',     icon: '🤖', description: 'Live agent monitor' },
   { id: 'memory',   label: 'Daily Log',  icon: '🧠', description: 'Session memory + summaries' },
   { id: 'trends',   label: 'Trends',     icon: '📡', description: 'Live trending monitor' },
+  { id: 'rd',       label: 'R&D Team',   icon: '🧬', description: 'AI research team + autonomous work log' },
 ];
 
 // ─── Main component ──────────────────────────────────────────────────────────
@@ -191,6 +194,7 @@ export default function MissionControl() {
           {section === 'agents'   && <AgentMonitor agents={agents} tasks={tasks} />}
           {section === 'memory'   && <Memory dailyLogs={dailyLogs} selectedDate={selectedDate} setSelectedDate={setSelectedDate} recentDays={recentDays} todaysLog={todaysLog} summaryInput={summaryInput} setSummaryInput={setSummaryInput} tagInput={tagInput} setTagInput={setTagInput} addLog={addLog} />}
           {section === 'trends'   && <Trends />}
+          {section === 'rd'       && <RDTeam />}
         </div>
       </div>
     </div>
@@ -679,6 +683,497 @@ const TS: Record<string, React.CSSProperties> = {
   setupItem:  { display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13, color: '#94a3b8', lineHeight: 1.5 },
   code:       { background: 'rgba(255,255,255,0.08)', padding: '1px 6px', borderRadius: 4, fontSize: 12, color: '#7dd3fc', fontFamily: 'monospace' },
 };
+
+// ─── R&D Team ─────────────────────────────────────────────────────────────────
+
+type AutonomousTask = {
+  id: string;
+  date: string;
+  taskType: string;
+  project: string;
+  title: string;
+  rationale: string;
+  output: string;
+  executedAt: string;
+};
+
+const TASK_TYPE_LABELS: Record<string, string> = {
+  feature_spec:    'Feature Spec',
+  market_analysis: 'Market Analysis',
+  growth_strategy: 'Growth Strategy',
+  technical_review:'Tech Review',
+  content_brief:   'Content Brief',
+  revenue_analysis:'Revenue Analysis',
+};
+
+const TASK_TYPE_COLORS: Record<string, string> = {
+  feature_spec:    '#7c3aed',
+  market_analysis: '#0ea5e9',
+  growth_strategy: '#10d9a0',
+  technical_review:'#f97316',
+  content_brief:   '#a855f7',
+  revenue_analysis:'#f59e0b',
+};
+
+const RD_PROJECTS = ['All Projects', 'DipperAI', 'Plato', 'Splash Signal', 'Reflect Medical', 'Portfolio'];
+
+const ROUND_LABELS: Record<number, string> = {
+  1: 'Round 1 · Analysis',
+  2: 'Round 2 · Debate',
+  3: 'Final Memo',
+};
+
+function AgentMessage({ msg }: { msg: RDMessage }) {
+  const color = RD_AGENT_COLORS[msg.role];
+  const icon = AGENT_ICONS[msg.role];
+  const name = AGENT_NAMES[msg.role];
+  const roundLabel = ROUND_LABELS[msg.round] ?? `Round ${msg.round}`;
+
+  return (
+    <div style={{
+      borderLeft: `3px solid ${color}`,
+      padding: '12px 14px',
+      background: 'rgba(255,255,255,0.02)',
+      borderRadius: '0 10px 10px 0',
+      marginBottom: 10,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 16 }}>{icon}</span>
+        <span style={{ fontWeight: 700, fontSize: 13, color }}>{name}</span>
+        <span style={{
+          fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 999,
+          background: `${color}22`, color, border: `1px solid ${color}44`,
+          textTransform: 'uppercase', letterSpacing: '0.05em',
+        }}>{roundLabel}</span>
+      </div>
+      <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
+        {msg.content}
+      </div>
+    </div>
+  );
+}
+
+function SessionCard({ session }: { session: RDSession }) {
+  const [expanded, setExpanded] = useState(false);
+  const [showDebate, setShowDebate] = useState(false);
+
+  const statusColor: Record<string, string> = {
+    complete: '#10d9a0',
+    running:  '#f59e0b',
+    error:    '#ef4444',
+  };
+  const statusLabel: Record<string, string> = {
+    complete: 'Complete',
+    running:  'Running',
+    error:    'Error',
+  };
+
+  const debateMessages = session.messages.filter(m => m.round < 3);
+  const memoMsg = session.messages.find(m => m.round === 3 && m.role === 'editor');
+
+  return (
+    <div style={{
+      background: 'rgba(255,255,255,0.025)',
+      border: '1px solid rgba(255,255,255,0.07)',
+      borderRadius: 16,
+      overflow: 'hidden',
+    }}>
+      {/* Card header */}
+      <button
+        style={{
+          width: '100%', display: 'flex', alignItems: 'flex-start', gap: 12,
+          padding: 16, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left',
+        }}
+        onClick={() => setExpanded(e => !e)}
+      >
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+            <span style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0' }}>{session.topic}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {session.project && session.project !== 'All Projects' && (
+              <span style={{
+                fontSize: 11, padding: '2px 8px', borderRadius: 999,
+                background: 'rgba(79,157,235,0.15)', color: '#7dd3fc',
+                border: '1px solid rgba(79,157,235,0.25)',
+              }}>{session.project}</span>
+            )}
+            <span style={{
+              fontSize: 11, padding: '2px 8px', borderRadius: 999,
+              background: `${statusColor[session.status]}22`,
+              color: statusColor[session.status],
+              border: `1px solid ${statusColor[session.status]}44`,
+            }}>{statusLabel[session.status]}</span>
+            <span style={{ fontSize: 11, color: '#475569' }}>
+              {new Date(session.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </span>
+          </div>
+        </div>
+        <span style={{ color: '#475569', fontSize: 16, flexShrink: 0 }}>{expanded ? '▲' : '▼'}</span>
+      </button>
+
+      {/* Expanded content */}
+      {expanded && (
+        <div style={{ padding: '0 16px 16px' }}>
+          {/* Final memo */}
+          {(session.memo || memoMsg) && (
+            <div style={{
+              background: 'rgba(79,157,235,0.06)',
+              border: '1px solid rgba(79,157,235,0.2)',
+              borderRadius: 12, padding: 16, marginBottom: 12,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <span>📝</span>
+                <span style={{ fontWeight: 700, fontSize: 13, color: '#4f9deb' }}>Editor&apos;s Memo</span>
+              </div>
+              <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+                {session.memo ?? memoMsg?.content}
+              </div>
+            </div>
+          )}
+
+          {/* Show debate toggle */}
+          {debateMessages.length > 0 && (
+            <>
+              <button
+                style={{
+                  background: 'none', border: '1px solid rgba(255,255,255,0.1)',
+                  color: '#94a3b8', borderRadius: 8, padding: '6px 14px',
+                  fontSize: 12, cursor: 'pointer', marginBottom: 12, fontWeight: 600,
+                }}
+                onClick={() => setShowDebate(d => !d)}
+              >
+                {showDebate ? 'Hide debate ▲' : `Show full debate (${debateMessages.length} messages) ▼`}
+              </button>
+
+              {showDebate && (
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  {debateMessages.map((msg, i) => (
+                    <AgentMessage key={i} msg={msg} />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {session.status === 'error' && (
+            <div style={{ color: '#ef4444', fontSize: 13, padding: '8px 0' }}>
+              ⚠️ Session encountered an error. Partial results may be available above.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AutonomousTaskCard({ task }: { task: AutonomousTask }) {
+  const [expanded, setExpanded] = useState(false);
+  const color = TASK_TYPE_COLORS[task.taskType] ?? '#94a3b8';
+  const label = TASK_TYPE_LABELS[task.taskType] ?? task.taskType;
+
+  return (
+    <div style={{
+      background: 'rgba(255,255,255,0.025)',
+      border: '1px solid rgba(255,255,255,0.07)',
+      borderRadius: 16,
+      overflow: 'hidden',
+    }}>
+      <button
+        style={{
+          width: '100%', display: 'flex', alignItems: 'flex-start', gap: 12,
+          padding: 16, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left',
+        }}
+        onClick={() => setExpanded(e => !e)}
+      >
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', marginBottom: 6 }}>{task.title}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{
+              fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999,
+              background: `${color}22`, color, border: `1px solid ${color}44`,
+            }}>{label}</span>
+            <span style={{
+              fontSize: 11, padding: '2px 8px', borderRadius: 999,
+              background: 'rgba(79,157,235,0.12)', color: '#7dd3fc',
+              border: '1px solid rgba(79,157,235,0.25)',
+            }}>{task.project}</span>
+            <span style={{ fontSize: 11, color: '#475569' }}>
+              {new Date(task.executedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </span>
+          </div>
+          {!expanded && (
+            <div style={{ fontSize: 12, color: '#64748b', marginTop: 6, fontStyle: 'italic' }}>
+              {task.rationale.slice(0, 100)}{task.rationale.length > 100 ? '…' : ''}
+            </div>
+          )}
+        </div>
+        <span style={{ color: '#475569', fontSize: 16, flexShrink: 0 }}>{expanded ? '▲' : '▼'}</span>
+      </button>
+
+      {expanded && (
+        <div style={{ padding: '0 16px 16px' }}>
+          <div style={{
+            background: 'rgba(255,255,255,0.03)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 10, padding: 12, marginBottom: 12,
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Why I chose this</div>
+            <div style={{ fontSize: 13, color: '#94a3b8', lineHeight: 1.6 }}>{task.rationale}</div>
+          </div>
+          <div style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+            {task.output}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RDTeam() {
+  const [tab, setTab] = useState<'sessions' | 'autonomous'>('sessions');
+  const [sessions, setSessions] = useState<RDSession[]>([]);
+  const [autonomousTasks, setAutonomousTasks] = useState<AutonomousTask[]>([]);
+  const [showModal, setShowModal] = useState(false);
+  const [topic, setTopic] = useState('');
+  const [project, setProject] = useState('All Projects');
+  const [loading, setLoading] = useState(false);
+  const [loadingPhase, setLoadingPhase] = useState('');
+  const [fetchError, setFetchError] = useState('');
+
+  // Load sessions
+  const loadSessions = async () => {
+    try {
+      const res = await fetch('/api/rd');
+      if (res.ok) {
+        const data = await res.json() as { sessions: RDSession[] };
+        setSessions(data.sessions ?? []);
+      }
+    } catch { /* silent */ }
+  };
+
+  // Load autonomous log
+  const loadAutonomous = async () => {
+    try {
+      const res = await fetch('/api/autonomous/log');
+      if (res.ok) {
+        const data = await res.json() as { tasks: AutonomousTask[] };
+        setAutonomousTasks(data.tasks ?? []);
+      }
+    } catch { /* silent */ }
+  };
+
+  useEffect(() => {
+    loadSessions();
+    loadAutonomous();
+  }, []);
+
+  const startSession = async () => {
+    if (!topic.trim()) return;
+    setLoading(true);
+    setFetchError('');
+
+    // Simulate phase labels
+    const phases = [
+      '🧬 Round 1: Analysis...',
+      '⚔️ Round 2: Debate...',
+      '📝 Finalizing memo...',
+    ];
+    let phaseIndex = 0;
+    setLoadingPhase(phases[0]);
+    const phaseInterval = setInterval(() => {
+      phaseIndex = Math.min(phaseIndex + 1, phases.length - 1);
+      setLoadingPhase(phases[phaseIndex]);
+    }, 8000);
+
+    try {
+      const res = await fetch('/api/rd/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: topic.trim(), project: project === 'All Projects' ? undefined : project }),
+      });
+
+      clearInterval(phaseInterval);
+
+      if (!res.ok) {
+        setFetchError('Session failed. Check ANTHROPIC_API_KEY.');
+      } else {
+        const session = await res.json() as RDSession;
+        setSessions(prev => [session, ...prev.filter(s => s.id !== session.id)]);
+        setShowModal(false);
+        setTopic('');
+        setProject('All Projects');
+      }
+    } catch (err) {
+      clearInterval(phaseInterval);
+      setFetchError(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setLoading(false);
+      setLoadingPhase('');
+    }
+  };
+
+  const lastSessionTime = sessions[0]
+    ? new Date(sessions[0].createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : null;
+
+  return (
+    <div style={S.section}>
+      <SectionHeader title="🧬 R&D Team" subtitle="AI research team debates your business and produces strategic memos" />
+
+      {/* Tab bar */}
+      <div style={{ display: 'flex', gap: 8, background: 'rgba(255,255,255,0.04)', borderRadius: 12, padding: 4 }}>
+        {(['sessions', 'autonomous'] as const).map(t => (
+          <button
+            key={t}
+            style={{
+              flex: 1, padding: '10px 0', borderRadius: 9, border: 'none', cursor: 'pointer',
+              fontWeight: 700, fontSize: 13,
+              background: tab === t ? 'rgba(16,217,160,0.15)' : 'transparent',
+              color: tab === t ? '#10d9a0' : '#64748b',
+              transition: 'all 0.15s',
+            }}
+            onClick={() => setTab(t)}
+          >
+            {t === 'sessions' ? '🧪 Research Sessions' : '🤖 Autonomous Log'}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Research Sessions tab ── */}
+      {tab === 'sessions' && (
+        <>
+          {/* Top bar */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <button style={S.primaryBtn} onClick={() => setShowModal(true)}>
+              + New Research Session
+            </button>
+            <div style={{ fontSize: 12, color: '#475569' }}>
+              {sessions.length} session{sessions.length !== 1 ? 's' : ''}
+              {lastSessionTime && ` · Last: ${lastSessionTime}`}
+            </div>
+          </div>
+
+          {/* Sessions list */}
+          {sessions.length === 0 ? (
+            <div style={{
+              textAlign: 'center', padding: '48px 0', color: '#334155', fontSize: 14,
+            }}>
+              No research sessions yet. Start one to get your team working!
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {sessions.map(s => <SessionCard key={s.id} session={s} />)}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Autonomous Log tab ── */}
+      {tab === 'autonomous' && (
+        <>
+          <div style={{ fontSize: 12, color: '#475569' }}>
+            {autonomousTasks.length} task{autonomousTasks.length !== 1 ? 's' : ''} · Runs nightly at 2am EDT
+          </div>
+          {autonomousTasks.length === 0 ? (
+            <div style={{
+              textAlign: 'center', padding: '48px 24px', color: '#334155', fontSize: 14,
+              background: 'rgba(255,255,255,0.02)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.05)',
+            }}>
+              🤖 No autonomous tasks yet.<br />
+              <span style={{ fontSize: 12, color: '#1e293b', marginTop: 4, display: 'block' }}>
+                First run at 2am tonight.
+              </span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {autonomousTasks.map(t => <AutonomousTaskCard key={t.id} task={t} />)}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── New Session Modal ── */}
+      {showModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 100,
+          background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+        }}>
+          <div style={{
+            background: '#0d1126', border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 20, padding: 24, width: '100%', maxWidth: 480,
+            display: 'flex', flexDirection: 'column', gap: 16,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 700, fontSize: 16, color: '#e2e8f0' }}>🧬 New Research Session</span>
+              <button
+                style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 18, cursor: 'pointer' }}
+                onClick={() => { setShowModal(false); setFetchError(''); }}
+              >✕</button>
+            </div>
+
+            {loading ? (
+              <div style={{ textAlign: 'center', padding: '32px 0' }}>
+                <div style={{ fontSize: 28, marginBottom: 12 }}>🧬</div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: '#e2e8f0', marginBottom: 8 }}>{loadingPhase}</div>
+                <div style={{ fontSize: 12, color: '#475569' }}>This takes 30-60 seconds. Hang tight…</div>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    Research Topic *
+                  </label>
+                  <input
+                    style={{ ...S.input, width: '100%' }}
+                    placeholder="What should the team research?"
+                    value={topic}
+                    onChange={e => setTopic(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && startSession()}
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    Project Focus
+                  </label>
+                  <select
+                    style={{ ...S.select, width: '100%' }}
+                    value={project}
+                    onChange={e => setProject(e.target.value)}
+                  >
+                    {RD_PROJECTS.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
+
+                {fetchError && (
+                  <div style={{ fontSize: 13, color: '#ef4444', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '10px 14px' }}>
+                    {fetchError}
+                  </div>
+                )}
+
+                <button
+                  style={{ ...S.primaryBtn, width: '100%', opacity: !topic.trim() ? 0.5 : 1 }}
+                  onClick={startSession}
+                  disabled={!topic.trim()}
+                >
+                  🚀 Start Research
+                </button>
+
+                <div style={{ fontSize: 11, color: '#334155', textAlign: 'center' }}>
+                  5 agents · 3 rounds · ~45 seconds
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 function SectionHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return (
