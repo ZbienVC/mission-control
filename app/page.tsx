@@ -7,7 +7,7 @@ import { Agent, AGENTS, AgentType, Task, TaskStatus } from '../lib/agents';
 
 type DailyLogEntry = { id: string; timestamp: string; summary: string; tags: string[] };
 type DailyLogDay   = { date: string; entries: DailyLogEntry[] };
-type NavSection    = 'overview' | 'kanban' | 'agents' | 'memory';
+type NavSection    = 'overview' | 'kanban' | 'agents' | 'memory' | 'trends';
 
 const DAILY_LOG_KEY = 'missionControl.dailyLogs.v1';
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -40,6 +40,7 @@ const NAV_ITEMS: { id: NavSection; label: string; icon: string; description: str
   { id: 'kanban',   label: 'Kanban',     icon: '📋', description: 'Task board + workflow' },
   { id: 'agents',   label: 'Agents',     icon: '🤖', description: 'Live agent monitor' },
   { id: 'memory',   label: 'Daily Log',  icon: '🧠', description: 'Session memory + summaries' },
+  { id: 'trends',   label: 'Trends',     icon: '📡', description: 'Live trending monitor' },
 ];
 
 // ─── Main component ──────────────────────────────────────────────────────────
@@ -189,6 +190,7 @@ export default function MissionControl() {
           {section === 'kanban'   && <Kanban   tasks={tasks} setTasks={setTasks} newTask={newTask} setNewTask={setNewTask} addTask={addTask} />}
           {section === 'agents'   && <AgentMonitor agents={agents} tasks={tasks} />}
           {section === 'memory'   && <Memory dailyLogs={dailyLogs} selectedDate={selectedDate} setSelectedDate={setSelectedDate} recentDays={recentDays} todaysLog={todaysLog} summaryInput={summaryInput} setSummaryInput={setSummaryInput} tagInput={tagInput} setTagInput={setTagInput} addLog={addLog} />}
+          {section === 'trends'   && <Trends />}
         </div>
       </div>
     </div>
@@ -393,6 +395,290 @@ function Memory({ dailyLogs, selectedDate, setSelectedDate, recentDays, todaysLo
     </div>
   );
 }
+
+// ─── Trends ───────────────────────────────────────────────────────────────────
+
+type TrendingPlatform = 'x' | 'reddit' | 'youtube';
+
+type TrendingItem = {
+  id: string;
+  platform: TrendingPlatform;
+  title: string;
+  url: string;
+  author: string;
+  thumbnail?: string;
+  metrics: {
+    likes?: number;
+    views?: number;
+    comments?: number;
+    shares?: number;
+    upvotes?: number;
+    score?: number;
+  };
+  velocityScore: number;
+  spike: boolean;
+  publishedAt: string;
+  fetchedAt: string;
+  keywords: string[];
+};
+
+type TrendingData = {
+  lastScanned: string | null;
+  items: TrendingItem[];
+  stats: { x: number; reddit: number; youtube: number; spikes: number };
+};
+
+const PLATFORM_COLORS: Record<TrendingPlatform, string> = {
+  x:       '#e2e8f0',
+  reddit:  '#ff4500',
+  youtube: '#ff0000',
+};
+
+const PLATFORM_LABELS: Record<TrendingPlatform, string> = {
+  x:       'X',
+  reddit:  'Reddit',
+  youtube: 'YouTube',
+};
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function TrendingCard({ item }: { item: TrendingItem }) {
+  const pc = PLATFORM_COLORS[item.platform];
+  const m = item.metrics;
+  const metricParts: string[] = [];
+  if (m.likes)    metricParts.push(`👍 ${m.likes.toLocaleString()}`);
+  if (m.upvotes)  metricParts.push(`👍 ${m.upvotes.toLocaleString()}`);
+  if (m.comments) metricParts.push(`💬 ${m.comments.toLocaleString()}`);
+  if (m.views)    metricParts.push(`👁 ${m.views.toLocaleString()}`);
+  if (m.shares)   metricParts.push(`🔁 ${m.shares.toLocaleString()}`);
+
+  return (
+    <div style={{
+      ...TS.card,
+      borderLeft: item.spike ? '3px solid rgba(249,115,22,0.6)' : '3px solid rgba(255,255,255,0.07)',
+    }}>
+      <div style={TS.cardTop}>
+        <span style={{ ...TS.platformBadge, background: pc + '22', color: pc, borderColor: pc + '44' }}>
+          {PLATFORM_LABELS[item.platform]}
+        </span>
+        {item.spike && <span style={TS.spikeBadge}>🔥 Spike</span>}
+      </div>
+
+      <a href={item.url} target="_blank" rel="noopener noreferrer" style={TS.titleLink}>
+        {item.title.length > 80 ? item.title.slice(0, 80) + '…' : item.title}
+      </a>
+
+      <div style={TS.metaRow}>
+        <span style={TS.author}>@{item.author}</span>
+        <span style={TS.dot}>·</span>
+        <span style={TS.timeAgo}>{timeAgo(item.publishedAt)}</span>
+      </div>
+
+      <div style={TS.velRow}>
+        <span style={TS.velLabel}>Velocity</span>
+        <div style={TS.velTrack}>
+          <div style={{
+            ...TS.velFill,
+            width: `${item.velocityScore}%`,
+            background: `linear-gradient(90deg, ${pc}88, ${pc})`,
+          }} />
+        </div>
+        <span style={TS.velNum}>{item.velocityScore}</span>
+      </div>
+
+      {metricParts.length > 0 && (
+        <div style={TS.metricsRow}>{metricParts.join(' · ')}</div>
+      )}
+
+      {item.keywords.length > 0 && (
+        <div style={TS.keywordRow}>
+          {item.keywords.map(kw => (
+            <span key={kw} style={TS.keyword}>{kw}</span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SetupNotice({ hasX, hasReddit, hasYouTube }: { hasX: boolean; hasReddit: boolean; hasYouTube: boolean }) {
+  if (hasX && hasReddit && hasYouTube) return null;
+  return (
+    <div style={TS.setupCard}>
+      <div style={TS.setupTitle}>🔌 Connect your APIs to start monitoring</div>
+      <div style={TS.setupList}>
+        <div style={TS.setupItem}>
+          <span>{hasX ? '✅' : '❌'}</span>
+          <span>X API — add <code style={TS.code}>X_BEARER_TOKEN</code> to .env.local</span>
+        </div>
+        <div style={TS.setupItem}>
+          <span>{hasReddit ? '✅' : '❌'}</span>
+          <span>Reddit API — add <code style={TS.code}>REDDIT_CLIENT_ID</code> + <code style={TS.code}>REDDIT_CLIENT_SECRET</code></span>
+        </div>
+        <div style={TS.setupItem}>
+          <span>{hasYouTube ? '✅' : '❌'}</span>
+          <span>YouTube API — add <code style={TS.code}>YOUTUBE_API_KEY</code></span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Trends() {
+  const [data, setData]           = useState<TrendingData | null>(null);
+  const [loading, setLoading]     = useState(false);
+  const [filter, setFilter]       = useState<TrendingPlatform | 'all' | 'spikes'>('all');
+  const [apiStatus, setApiStatus] = useState<{ x: boolean; reddit: boolean; youtube: boolean } | null>(null);
+
+  const load = async () => {
+    try {
+      const res = await fetch('/api/trending');
+      if (res.ok) setData(await res.json());
+    } catch { /* silent */ }
+  };
+
+  const scan = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/trending/scan', { method: 'POST' });
+      if (res.ok) {
+        const d: TrendingData = await res.json();
+        setData(d);
+        setApiStatus({
+          x:       d.stats.x > 0,
+          reddit:  d.stats.reddit > 0,
+          youtube: d.stats.youtube > 0,
+        });
+      }
+    } catch { /* silent */ } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  // Auto-refresh every 5 minutes
+  useEffect(() => {
+    const id = setInterval(load, 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const items = data?.items ?? [];
+  const filtered = items.filter(item => {
+    if (filter === 'all')    return true;
+    if (filter === 'spikes') return item.spike;
+    return item.platform === filter;
+  });
+
+  const lastScannedStr = data?.lastScanned
+    ? timeAgo(data.lastScanned)
+    : 'Never';
+
+  return (
+    <div style={S.section}>
+      <SectionHeader title="📡 Trends" subtitle="Real-time spike monitor" />
+
+      {/* Top bar */}
+      <div style={TS.topBar}>
+        <button style={{ ...S.primaryBtn, opacity: loading ? 0.7 : 1 }} onClick={scan} disabled={loading}>
+          {loading ? '⏳ Scanning…' : '🔍 Scan Now'}
+        </button>
+        <span style={TS.lastScan}>Last scanned: {lastScannedStr}</span>
+      </div>
+
+      {/* Stats */}
+      {data && (
+        <div style={TS.statsRow}>
+          <span style={TS.statItem}>𝕏 <strong>{data.stats.x}</strong></span>
+          <span style={TS.statItem}>Reddit <strong>{data.stats.reddit}</strong></span>
+          <span style={TS.statItem}>YouTube <strong>{data.stats.youtube}</strong></span>
+          {data.stats.spikes > 0 && (
+            <span style={{ ...TS.statItem, color: '#f97316' }}>🔥 <strong>{data.stats.spikes}</strong> spike{data.stats.spikes !== 1 ? 's' : ''}</span>
+          )}
+        </div>
+      )}
+
+      {/* API setup notice */}
+      {apiStatus && (
+        <SetupNotice hasX={apiStatus.x} hasReddit={apiStatus.reddit} hasYouTube={apiStatus.youtube} />
+      )}
+
+      {/* Filters */}
+      <div style={TS.filterRow}>
+        {(['all', 'x', 'reddit', 'youtube', 'spikes'] as const).map(f => (
+          <button
+            key={f}
+            style={{ ...TS.filterBtn, ...(filter === f ? TS.filterBtnActive : {}) }}
+            onClick={() => setFilter(f)}
+          >
+            {f === 'all'    ? 'All'       :
+             f === 'x'      ? '𝕏'         :
+             f === 'reddit' ? 'Reddit'    :
+             f === 'youtube'? 'YouTube'   :
+             '🔥 Spikes'}
+          </button>
+        ))}
+      </div>
+
+      {/* Items */}
+      {filtered.length === 0 ? (
+        <div style={TS.emptyState}>
+          {items.length === 0
+            ? 'No trending content yet. Hit Scan Now to fetch the latest.'
+            : 'No items match this filter.'}
+        </div>
+      ) : (
+        <div style={TS.cardList}>
+          {filtered.map(item => <TrendingCard key={item.id} item={item} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Trends styles ────────────────────────────────────────────────────────────
+
+const TS: Record<string, React.CSSProperties> = {
+  topBar:     { display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' },
+  lastScan:   { fontSize: 12, color: '#64748b' },
+  statsRow:   { display: 'flex', gap: 16, flexWrap: 'wrap', padding: '12px 16px', background: 'rgba(255,255,255,0.025)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.06)' },
+  statItem:   { fontSize: 13, color: '#94a3b8' },
+  filterRow:  { display: 'flex', gap: 8, flexWrap: 'wrap' },
+  filterBtn:  { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: '#94a3b8', borderRadius: 999, padding: '6px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 500 },
+  filterBtnActive: { background: 'rgba(16,217,160,0.12)', borderColor: 'rgba(16,217,160,0.4)', color: '#e2e8f0' },
+  cardList:   { display: 'flex', flexDirection: 'column', gap: 10 },
+  card:       { background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 14, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 },
+  cardTop:    { display: 'flex', alignItems: 'center', gap: 8 },
+  platformBadge: { fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, border: '1px solid' },
+  spikeBadge: { fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(249,115,22,0.15)', color: '#f97316', border: '1px solid rgba(249,115,22,0.3)' },
+  titleLink:  { fontSize: 14, fontWeight: 600, color: '#e2e8f0', textDecoration: 'none', lineHeight: 1.4 },
+  metaRow:    { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b' },
+  author:     { color: '#94a3b8' },
+  dot:        { color: '#334155' },
+  timeAgo:    { color: '#64748b' },
+  velRow:     { display: 'flex', alignItems: 'center', gap: 8 },
+  velLabel:   { fontSize: 11, color: '#475569', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', width: 56, flexShrink: 0 } as React.CSSProperties,
+  velTrack:   { flex: 1, height: 4, background: 'rgba(255,255,255,0.07)', borderRadius: 4, overflow: 'hidden' },
+  velFill:    { height: '100%', borderRadius: 4, transition: 'width 0.5s ease' },
+  velNum:     { fontSize: 12, color: '#94a3b8', width: 28, textAlign: 'right', flexShrink: 0 } as React.CSSProperties,
+  metricsRow: { fontSize: 12, color: '#64748b' },
+  keywordRow: { display: 'flex', flexWrap: 'wrap', gap: 6 },
+  keyword:    { fontSize: 11, padding: '2px 8px', borderRadius: 999, background: 'rgba(79,157,235,0.12)', color: '#7dd3fc', border: '1px solid rgba(79,157,235,0.2)' },
+  emptyState: { color: '#475569', fontSize: 14, textAlign: 'center', padding: '32px 0' } as React.CSSProperties,
+  setupCard:  { background: 'rgba(255,200,0,0.04)', border: '1px solid rgba(255,200,0,0.15)', borderRadius: 14, padding: 16 },
+  setupTitle: { fontSize: 14, fontWeight: 700, marginBottom: 12, color: '#e2e8f0' },
+  setupList:  { display: 'flex', flexDirection: 'column', gap: 10 },
+  setupItem:  { display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13, color: '#94a3b8', lineHeight: 1.5 },
+  code:       { background: 'rgba(255,255,255,0.08)', padding: '1px 6px', borderRadius: 4, fontSize: 12, color: '#7dd3fc', fontFamily: 'monospace' },
+};
 
 function SectionHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return (
