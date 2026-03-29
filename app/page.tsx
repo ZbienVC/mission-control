@@ -92,7 +92,19 @@ export default function MissionControl() {
     }))
   );
   const [selectedDate, setSelectedDate] = useState<string>(todayISO());
-  const [dailyLogs, setDailyLogs] = useState<DailyLogDay[]>([]);
+  const [dailyLogs, setDailyLogs] = useState<DailyLogDay[]>([
+    {
+      date: todayISO(),
+      entries: [
+        {
+          id: crypto.randomUUID(),
+          timestamp: new Date().toISOString(),
+          summary: 'Kickoff: Phase 5 knowledge base delivered, Phase 6 multi-agent orchestration underway, Mission Control board redesign + daily memory system planned.',
+          tags: ['DipperAI', 'Mission Control'],
+        },
+      ],
+    },
+  ]);
   const [summaryInput, setSummaryInput] = useState('');
   const [tagInput, setTagInput] = useState('');
   const [newTask, setNewTask] = useState({ title: '', description: '', agent: 'coding' as AgentType });
