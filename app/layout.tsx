@@ -15,6 +15,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           body { background: #050817; color: #f8fbff; line-height: 1.6; }
           input, select, textarea, button { font-family: inherit; font-size: inherit; }
           h1, h2, h3, h4 { line-height: 1.25; }
+          @keyframes spin { to { transform: rotate(360deg); } }
         `}</style>
       </head>
       <body>{children}</body>

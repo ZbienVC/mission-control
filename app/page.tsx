@@ -940,6 +940,8 @@ function RDTeam() {
   const [loading, setLoading] = useState(false);
   const [loadingPhase, setLoadingPhase] = useState('');
   const [fetchError, setFetchError] = useState('');
+  const [runningAutonomous, setRunningAutonomous] = useState(false);
+  const [autonomousError, setAutonomousError] = useState('');
 
   // Load sessions
   const loadSessions = async () => {
@@ -967,6 +969,25 @@ function RDTeam() {
     loadSessions();
     loadAutonomous();
   }, []);
+
+  const runAutonomousNow = async () => {
+    setRunningAutonomous(true);
+    setAutonomousError('');
+    try {
+      const res = await fetch('/api/autonomous', { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Unknown error' })) as { error?: string };
+        setAutonomousError(err.error ?? `Server error ${res.status}`);
+      } else {
+        const task = await res.json() as AutonomousTask;
+        setAutonomousTasks(prev => [task, ...prev]);
+      }
+    } catch (err) {
+      setAutonomousError(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setRunningAutonomous(false);
+    }
+  };
 
   const startSession = async () => {
     if (!topic.trim()) return;
@@ -1072,9 +1093,44 @@ function RDTeam() {
       {/* ── Autonomous Log tab ── */}
       {tab === 'autonomous' && (
         <>
-          <div style={{ fontSize: 12, color: '#475569' }}>
-            {autonomousTasks.length} task{autonomousTasks.length !== 1 ? 's' : ''} · Runs nightly at 2am EDT
+          {/* Top bar with Run Now button */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <button
+              style={{
+                ...S.primaryBtn,
+                opacity: runningAutonomous ? 0.6 : 1,
+                cursor: runningAutonomous ? 'not-allowed' : 'pointer',
+                display: 'flex', alignItems: 'center', gap: 8,
+              }}
+              onClick={runAutonomousNow}
+              disabled={runningAutonomous}
+            >
+              {runningAutonomous ? (
+                <>
+                  <span style={{
+                    display: 'inline-block', width: 12, height: 12, borderRadius: '50%',
+                    border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff',
+                    animation: 'spin 0.7s linear infinite',
+                  }} />
+                  Working...
+                </>
+              ) : '▶ Run Now'}
+            </button>
+            <div style={{ fontSize: 12, color: '#475569' }}>
+              {autonomousTasks.length} task{autonomousTasks.length !== 1 ? 's' : ''} · Runs nightly at 2am EDT
+            </div>
           </div>
+
+          {/* Error message */}
+          {autonomousError && (
+            <div style={{
+              padding: '10px 14px', borderRadius: 10, background: 'rgba(239,68,68,0.12)',
+              border: '1px solid rgba(239,68,68,0.3)', color: '#fca5a5', fontSize: 13,
+            }}>
+              ⚠️ {autonomousError}
+            </div>
+          )}
+
           {autonomousTasks.length === 0 ? (
             <div style={{
               textAlign: 'center', padding: '48px 24px', color: '#334155', fontSize: 14,
@@ -1082,7 +1138,7 @@ function RDTeam() {
             }}>
               🤖 No autonomous tasks yet.<br />
               <span style={{ fontSize: 12, color: '#1e293b', marginTop: 4, display: 'block' }}>
-                First run at 2am tonight.
+                Hit &ldquo;Run Now&rdquo; to test it, or wait for the 2am nightly run.
               </span>
             </div>
           ) : (
