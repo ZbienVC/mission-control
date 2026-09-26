@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const VALID_USER = process.env.AUTH_USER || 'zach';
-const VALID_PASS = process.env.AUTH_PASS || 'Drfreaky6767Q!123';
+// Credentials come only from the environment. With either unset, every
+// request is refused rather than falling back to a password in the source.
+const VALID_USER = process.env.AUTH_USER;
+const VALID_PASS = process.env.AUTH_PASS;
 
 export function middleware(req: NextRequest) {
   const auth = req.headers.get('authorization') ?? '';
 
-  if (auth.startsWith('Basic ')) {
+  if (VALID_USER && VALID_PASS && auth.startsWith('Basic ')) {
     try {
       const decoded = atob(auth.slice(6));
       const colon = decoded.indexOf(':');
